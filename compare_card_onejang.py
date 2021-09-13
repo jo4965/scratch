@@ -75,7 +75,7 @@ if __name__ == '__main__':
             except:
                 is_card_xlrd = 2
                 print("xlrd.open_workbook error {}".format(card_file_path))
-                with open(card_file_path, "rt") as fp:
+                with open(card_file_path, "rt", encoding='utf-8') as fp:
                     soup = bs4.BeautifulSoup(fp.read(), 'html.parser')
                     # print(soup)
                     head_row = soup.findAll("th", {"style" : "background-color:#D9D9D9;"})
