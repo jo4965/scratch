@@ -3,6 +3,8 @@ from openpyxl import load_workbook, Workbook
 import xlrd
 import glob
 import os
+import re
+import bs4
 # parser = argparse.ArgumentParser(description='Compare onejang vs card')
 # parser.add_argument('--card-files', nargs='+',
 #                     help='카드내역서 엑셀 파일 (복수 가능)')
@@ -21,29 +23,82 @@ if __name__ == '__main__':
 
     # onejang_file = "/Users/user/Downloads/onejang_old.xlsx"
     card_money_to_rows = dict()
-
+    
     for card_file_path in card_files:
-        # data_only=True로 해줘야 수식이 아닌 값으로 받아온다. 
-        card_wb = load_workbook(card_file_path, data_only=True)
-        # 시트 이름으로 불러오기 
-        card_ws = card_wb['법인매출상세내역']
+        try:
+            is_card_xlrd = 0
+            # data_only=True로 해줘야 수식이 아닌 값으로 받아온다. 
+            card_wb = load_workbook(card_file_path, data_only=True)
+            # 시트 이름으로 불러오기 
+            card_ws = card_wb['법인매출상세내역']
 
-        # 모든 행 단위로 출력
+            # 모든 행 단위로 출력
 
-        for row in card_ws.rows:
-            if row[0].value == '카드번호':
-                card_head_row = row
-                continue
-            
-            # for cell in row:
-            #     print(cell.value, end=' ')
-            # print('')
+            for row in card_ws.rows:
+                if row[0].value == '카드번호':
+                    card_head_row = row
+                    continue
+                
+                # for cell in row:
+                #     print(cell.value, end=' ')
+                # print('')
 
-            money = row[4].value
-            if money in card_money_to_rows.keys():
-                card_money_to_rows[money].append(row)
-            else:
-                card_money_to_rows[money] = [row]
+                money = row[4].value
+                if money in card_money_to_rows.keys():
+                    card_money_to_rows[money].append(row)
+                else:
+                    card_money_to_rows[money] = [row]
+        except:
+            try:
+                print("load_workbook error: {}".format(card_file_path))
+                is_card_xlrd = 1
+                card_wb = xlrd.open_workbook(card_file_path)
+                card_ws = card_wb.sheet_by_index(0)
+
+                for i in range(card_ws.nrows):
+                    if card_ws.row_values(i)[0] == "카드번호":
+                        card_head_row = row
+                        continue
+
+                    row = card_ws.row_values(i)
+                    money = card_ws.row_values(i)[4]
+                    # if not isinstance(money, float):
+                    #     print("not isinstance money {}".format(money))
+                    #     continue
+
+                    # money = int(row[22])
+
+                    if money in card_money_to_rows.keys():
+                        card_money_to_rows[money].append(row)
+                    else:
+                        card_money_to_rows[money] = [row]
+            except:
+                is_card_xlrd = 2
+                print("xlrd.open_workbook error {}".format(card_file_path))
+                with open(card_file_path, "rt") as fp:
+                    soup = bs4.BeautifulSoup(fp.read(), 'html.parser')
+                    # print(soup)
+                    head_row = soup.findAll("th", {"style" : "background-color:#D9D9D9;"})
+                    card_head_row = list()
+                    for th in head_row:
+                        card_head_row.append(th.text)
+
+                    row_finder = soup.findAll("td")
+                    # money_row = list()
+                    money_row = list()
+                    for i, td in enumerate(row_finder):
+                        # money_row.append(th.text)
+                        money_row.append(td.text)
+                        if (i+1) % 14 == 0:
+                            money = int(money_row[4])
+                            if money in card_money_to_rows.keys():
+                                card_money_to_rows[money].append(money_row)
+                            else:
+                                card_money_to_rows[money] = [money_row]
+                            money_row = list()
+
+
+
 
     onejang_money_to_rows = dict()
 
@@ -125,37 +180,63 @@ if __name__ == '__main__':
     
     card_but_not_in_onejang = list()
     print("[+] 카드 내역에는 있는데 원장에 없는 놈들 확인\n")
-    for card_money, card_rows in card_money_to_rows.items():
-        
-        if card_money not in onejang_money_to_rows.keys():
+    if not is_card_xlrd:
+        for card_money, card_rows in card_money_to_rows.items():
             
-            for row in card_rows:
-                print("[+] 원장에 없어요 -> ", end = ' ')
-                for cell in row:
-                    print(cell.value, end=' ')
-                print('')
-
-                card_but_not_in_onejang.append(row)
-            print('')
-        else:
-            if len(card_rows) > len(onejang_money_to_rows[card_money]):
-                not_exist_cnt = len(card_rows) - len(onejang_money_to_rows[card_money])
-                for i in range(not_exist_cnt):
+            if card_money not in onejang_money_to_rows.keys():
+                
+                for row in card_rows:
                     print("[+] 원장에 없어요 -> ", end = ' ')
-                    for cell in card_rows[i]:
+                    for cell in row:
                         print(cell.value, end=' ')
                     print('')
-                    card_but_not_in_onejang.append(card_rows[i])
 
+                    card_but_not_in_onejang.append(row)
                 print('')
+            else:
+                if len(card_rows) > len(onejang_money_to_rows[card_money]):
+                    not_exist_cnt = len(card_rows) - len(onejang_money_to_rows[card_money])
+                    for i in range(not_exist_cnt):
+                        print("[+] 원장에 없어요 -> ", end = ' ')
+                        for cell in card_rows[i]:
+                            print(cell.value, end=' ')
+                        print('')
+                        card_but_not_in_onejang.append(card_rows[i])
+
+                    print('')
+                    
+                    # print("[+] 얘네 중에 원장에 없는 애들이 있어요")
+                    # for row in card_rows:
+                    #     print("---->", end = ' ')
+                    #     for cell in row:
+                    #         print(cell.value, end=' ')
+                    #     print('')
+                    # print('')    
+
+    else:
+        for card_money, card_rows in card_money_to_rows.items():
+            
+            if card_money not in onejang_money_to_rows.keys():
                 
-                # print("[+] 얘네 중에 원장에 없는 애들이 있어요")
-                # for row in card_rows:
-                #     print("---->", end = ' ')
-                #     for cell in row:
-                #         print(cell.value, end=' ')
-                #     print('')
-                # print('')    
+                for row in card_rows:
+                    print("[+] 원장에 없어요 -> ", end = ' ')
+                    for value in row:
+                        print(value, end=' ')
+                    print('')
+
+                    card_but_not_in_onejang.append(row)
+                print('')
+            else:
+                if len(card_rows) > len(onejang_money_to_rows[card_money]):
+                    not_exist_cnt = len(card_rows) - len(onejang_money_to_rows[card_money])
+                    for i in range(not_exist_cnt):
+                        print("[+] 원장에 없어요 -> ", end = ' ')
+                        for value in card_rows[i]:
+                            print(value, end=' ')
+                        print('')
+                        card_but_not_in_onejang.append(card_rows[i])
+
+                    print('')
 
 
     print("\n\n")
@@ -223,12 +304,22 @@ if __name__ == '__main__':
     card_sheet = new_workbook.active
     card_sheet.title = "카드 내역에는 있는데 원장에 없는 놈들"
 
-    for head_col_num in range(len(card_head_row)):
-        card_sheet.cell(row = 1, column = head_col_num + 1).value = card_head_row[head_col_num].value
+    if not is_card_xlrd:
+        for head_col_num in range(len(card_head_row)):
+            card_sheet.cell(row = 1, column = head_col_num + 1).value = card_head_row[head_col_num].value
 
-    for row_idx in range(0, len(card_but_not_in_onejang)):
-        for col_idx in range(len(card_but_not_in_onejang[row_idx])):
-            card_sheet.cell(row = row_idx+2, column = col_idx + 1).value = card_but_not_in_onejang[row_idx][col_idx].value
+        for row_idx in range(0, len(card_but_not_in_onejang)):
+            for col_idx in range(len(card_but_not_in_onejang[row_idx])):
+                card_sheet.cell(row = row_idx+2, column = col_idx + 1).value = card_but_not_in_onejang[row_idx][col_idx].value
+    else:
+        for head_col_num in range(len(card_head_row)):
+            card_sheet.cell(row = 1, column = head_col_num + 1).value = card_head_row[head_col_num]
+
+        for row_idx in range(0, len(card_but_not_in_onejang)):
+            for col_idx in range(len(card_but_not_in_onejang[row_idx])):
+                card_sheet.cell(row = row_idx+2, column = col_idx + 1).value = card_but_not_in_onejang[row_idx][col_idx]
+
+
 
     onejang_sheet = new_workbook.create_sheet()
     onejang_sheet.title = "원장에는 있는데 카드 내역에 없는 놈들"
